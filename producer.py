@@ -33,8 +33,11 @@ from pyspark.sql import SparkSession
 import pandas as pd
 from confluent_kafka.serialization import StringSerializer
 import psycopg2
+import time
 
 employee_topic_name = "bf_employee_cdc"
+schema_name = "project_2"
+employees_cdc = "emp_cdc"
 
 class cdcProducer(Producer):
     #if running outside Docker (i.e. producer is NOT in the docer-compose file): host = localhost and port = 29092
@@ -46,8 +49,67 @@ class cdcProducer(Producer):
                           'acks' : 'all'}
         super().__init__(producerConfig)
         self.running = True
+
+
+    def get_last_offset(self):
+        try:
+            conn = psycopg2.connect(
+                host="localhost",
+                database="postgres",
+                user="postgres",
+                port = '5432',
+                password="postgres"
+                )
+            conn.autocommit = True
+            cur = conn.cursor()
+
+            query = f"""
+                SELECT last_action_id
+                FROM {schema_name}.cdc_offsets
+                WHERE topic_name = %s
+                ;
+            """
+            cur.execute(query, (employee_topic_name, ))
+            offset_result = cur.fetchone()
+
+            cur.close()
+            conn.close()
+
+            return offset_result[0] if offset_result else 0
+        
+        except Exception as err:
+            print(f"Error fetching last offset : {err}")
+            return 0
+        
+    def update_last_offset(self, last_action_id):
+        try:
+            conn = psycopg2.connect(
+                host="localhost",
+                database="postgres",
+                user="postgres",
+                port = '5432',
+                password="postgres"
+                )
+            conn.autocommit = True
+            cur = conn.cursor()
+
+            query = f"""
+                INSERT INTO {schema_name}.cdc_offsets (topic_name, last_action_id)
+                VALUES (%s, %s)
+                ON CONFLICT (topic_name)
+                DO UPDATE SET last_action_id = EXCLUDED.last_action_id;
+            """
+
+            cur.execute(query, (employee_topic_name, last_action_id))
+
+            cur.close()
+            conn.close()
+        
+        except Exception as err:
+            print(f"Error updating last offset: {err}")
+            return 0
     
-    def fetch_cdc(self,):
+    def fetch_cdc(self):
         try:
             conn = psycopg2.connect(
                 host="localhost",
@@ -58,15 +120,37 @@ class cdcProducer(Producer):
             conn.autocommit = True
             cur = conn.cursor()
             #your logic should go here
+
+            # Fetch the last offset
+            last_action_id = self.get_last_offset()
             
-
-
+            # Fetching records
+            query = f"""
+                    SELECT 
+                        action_id,
+                        emp_id,
+                        first_name,
+                        last_name,
+                        dob,
+                        city,
+                        action 
+                    FROM {schema_name}.{employees_cdc}
+                    WHERE action_id > %s
+                    ORDER BY action_id ASC
+                    ;
+                    """
+            cur.execute(query, (last_action_id, ))
+            cdc_records = cur.fetchall()
+            
             cur.close()
-        except Exception as err:
-            pass
+            conn.close()
+
+            return cdc_records
         
-        return # if you need to return sth, modify here
-    
+        except Exception as err:
+            print(f"CDC records fetching error: {err}")
+            return 0
+
 
 if __name__ == '__main__':
     encoder = StringSerializer('utf-8')
@@ -74,5 +158,27 @@ if __name__ == '__main__':
     
     while producer.running:
         # your implementation goes here
-        pass
-    
+        new_records = producer.fetch_cdc()
+        #print(new_records)
+         # Check if there are new records to process
+        if new_records:
+            for line in new_records:
+                emp = Employee.from_line(line)
+                producer.produce(
+                    employee_topic_name, 
+                    key=encoder(str(emp.emp_id)), 
+                    value=encoder(emp.to_json()))
+                producer.poll(1)
+
+            # Updating last processed offset (action_id)
+            last_action_id = new_records[-1][0]
+            producer.update_last_offset(last_action_id)
+
+            print(f"Successfully processed {len(new_records)} new records.")
+            print(f"The action id of last record processed was {last_action_id}.")
+        
+        else:
+            print("No new modifications/addtions found...")
+        
+        time.sleep(3)
+        
