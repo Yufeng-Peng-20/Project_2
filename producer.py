@@ -119,7 +119,6 @@ class cdcProducer(Producer):
                 password="postgres")
             conn.autocommit = True
             cur = conn.cursor()
-            #your logic should go here
 
             # Fetch the last offset
             last_action_id = self.get_last_offset()

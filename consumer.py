@@ -81,8 +81,6 @@ def update_dst(msg):
             password="postgres")
         conn.autocommit = True
         cur = conn.cursor()
-        # your logic goes here
-        # Retriving the action data from messages
         action = e.action
 
         if action.lower() == "insert":
@@ -92,9 +90,9 @@ def update_dst(msg):
                 INSERT INTO {schema_name}.{table_name} (emp_id, first_name, last_name, dob, city)
                 VALUES (%s, %s, %s, %s, %s)
                 """,
-                (e.emp_id, e.first_name, e.last_name, e.dob, e.city),
+                (e.emp_id, e.first_name, e.last_name, e.emp_dob, e.emp_city),
             )
-            print(f"Inserted record: {e.emp_id, e.first_name, e.last_name, e.dob, e.city}")
+            print(f"Inserted record: {e.emp_id, e.first_name, e.last_name, e.emp_dob, e.emp_city}")
         
         elif action.lower() == "update":
             # Update the record in employee table in the destination database
@@ -104,9 +102,9 @@ def update_dst(msg):
                 SET first_name = %s, last_name = %s, dob = %s, city = %s
                 WHERE emp_id = %s
                 """,
-                (e.first_name, e.last_name, e.dob, e.city, e.emp_id),
+                (e.first_name, e.last_name, e.emp_dob, e.emp_city, e.emp_id),
             )
-            print(f"Updated record: {e.emp_id, e.first_name, e.last_name, e.dob, e.city}")
+            print(f"Updated record: {e.emp_id, e.first_name, e.last_name, e.emp_dob, e.emp_city}")
         
         elif action.lower() == "delete":
             # Delete the record from employee table in the destination database
@@ -117,7 +115,7 @@ def update_dst(msg):
                 """,
                 (e.emp_id,),
             )
-            print(f"Deleted record: {e.emp_id, e.first_name, e.last_name, e.dob, e.city}")
+            print(f"Deleted record: {e.emp_id, e.first_name, e.last_name, e.emp_dob, e.emp_city}")
             
         cur.close()
 
